@@ -139,6 +139,16 @@
             font-weight: bold;
         }
 
+        .danger-btn {
+            padding: 4px 8px;
+            background-color: #ff3b30;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+
         #status-bar {
             font-size: 12px;
             font-weight: bold;
@@ -273,6 +283,7 @@
         </div>
         <div class="header-row" style="justify-content: space-between; margin-top: 5px; padding-top: 5px; border-top: 1px dashed #eee;">
             <div id="status-bar">オフライン</div>
+            <button class="danger-btn" onclick="clearHistory()">履歴削除</button>
         </div>
     </div>
 
@@ -292,11 +303,32 @@
         let conn = null;
         let myEmailStr = "";
         let myCodeStr = "";
+        let chatHistory = [];
 
-        // メールアドレスとコードを合体させて安全なハッシュIDを作る関数
+        // ページ読み込み時の処理（保存データの復元）
+        window.onload = function() {
+            const savedEmail = localStorage.getItem('wifi_chat_my_email');
+            const savedCode = localStorage.getItem('wifi_chat_my_code');
+            const savedPeerEmail = localStorage.getItem('wifi_chat_peer_email');
+            const savedPeerCode = localStorage.getItem('wifi_chat_peer_code');
+            const savedHistory = localStorage.getItem('wifi_chat_history');
+
+            if (savedEmail && savedCode) {
+                document.getElementById('login-email').value = savedEmail;
+                document.getElementById('login-code').value = savedCode;
+            }
+            if (savedPeerEmail) document.getElementById('peer-email-input').value = savedPeerEmail;
+            if (savedPeerCode) document.getElementById('peer-code-input').value = savedPeerCode;
+            
+            if (savedHistory) {
+                chatHistory = JSON.parse(savedHistory);
+                renderHistory();
+            }
+        };
+
+        // 安全なハッシュIDを生成
         async function generateSecureId(email, code) {
             const combinedString = `email:${email.trim().toLowerCase()}-code:${code.trim()}`;
-            
             let h1 = 1779033703, h2 = 302473454, h3 = 336245363, h4 = 502494325;
             for (let i = 0, k; i < combinedString.length; i++) {
                 k = combinedString.charCodeAt(i);
@@ -312,25 +344,24 @@
             return [(h1^h2^h3^h4)>>>0, (h2^h1)>>>0, (h3^h1)>>>0, (h4^h1)>>>0].map(x => x.toString(16).padStart(8,'0')).join('');
         }
 
-        // ログイン処理
+        // 入室処理
         async function loginWithCredentials() {
             const emailInput = document.getElementById('login-email').value.trim();
             const codeInput = document.getElementById('login-code').value.trim();
 
-            if (!emailInput || !emailInput.includes('@')) {
-                alert('正しいメールアドレスを入力してください。');
-                return;
-            }
-            if (!codeInput) {
-                alert('認証用コードを入力してください。');
+            if (!emailInput || !emailInput.includes('@') || !codeInput) {
+                alert('入力内容を確認してください。');
                 return;
             }
 
             myEmailStr = emailInput;
             myCodeStr = codeInput;
 
+            // ローカルストレージに自分の情報を保存
+            localStorage.setItem('wifi_chat_my_email', myEmailStr);
+            localStorage.setItem('wifi_chat_my_code', myCodeStr);
+
             document.getElementById('my-info-display').innerText = `${myEmailStr} [コード: ${myCodeStr}]`;
-            
             const finalPeerId = await generateSecureId(myEmailStr, myCodeStr);
 
             document.getElementById('login-screen').style.display = 'none';
@@ -338,7 +369,7 @@
 
             peer = new Peer(finalPeerId);
 
-            peer.on('open', (id) => {
+            peer.on('open', () => {
                 updateStatus('待機中（相手からの接続を待っています）', '#007aff');
             });
 
@@ -351,7 +382,7 @@
             peer.on('error', (err) => {
                 console.error(err);
                 if (err.type === 'unavailable-id') {
-                    alert('このメアドとコードの組み合わせはすでに接続中か、セッションが残っています。');
+                    alert('この組み合わせはすでに接続中か、セッションが残っています。');
                     location.reload();
                 } else {
                     alert('エラーが発生しました: ' + err.type);
@@ -359,25 +390,27 @@
             });
         }
 
-        // 自分から相手に発信する処理
+        // 接続処理
         async function connectToPeer() {
             const peerEmail = document.getElementById('peer-email-input').value.trim();
             const peerCode = document.getElementById('peer-code-input').value.trim();
 
             if (!peerEmail || !peerEmail.includes('@') || !peerCode) {
-                alert('相手のメールアドレスとコードを正しく入力してください。');
+                alert('相手の情報が正しくありません。');
                 return;
             }
 
+            // 相手の入力情報を保存
+            localStorage.setItem('wifi_chat_peer_email', peerEmail);
+            localStorage.setItem('wifi_chat_peer_code', peerCode);
+
             updateStatus('相手の組み合わせを検索して接続中...', '#ff9500');
-            
             const targetPeerId = await generateSecureId(peerEmail, peerCode);
             
             conn = peer.connect(targetPeerId);
             setupConnection();
         }
 
-        // 接続完了後のイベント設定
         function setupConnection() {
             conn.on('open', () => {
                 updateStatus('接続完了！通信可能です', '#4cd964');
@@ -387,11 +420,7 @@
             });
 
             conn.on('data', (data) => {
-                if (data.type === 'text') {
-                    appendMessage('peer', data.content);
-                } else if (data.type === 'image') {
-                    appendImage('peer', data.content);
-                }
+                saveAndAppend(data.sender || 'peer', data.type, data.content);
             });
 
             conn.on('close', () => {
@@ -403,22 +432,34 @@
             });
         }
 
-        // メッセージ送信
+        // メッセージ・履歴保存＆反映
+        function saveAndAppend(sender, type, content) {
+            chatHistory.push({ sender, type, content });
+            // 容量制限対策として直近100件程度に維持
+            if (chatHistory.length > 100) chatHistory.shift(); 
+            localStorage.setItem('wifi_chat_history', JSON.stringify(chatHistory));
+
+            if (type === 'text') {
+                appendMessageMarkup(sender, content);
+            } else if (type === 'image') {
+                appendImageMarkup(sender, content);
+            }
+        }
+
         function sendMessage() {
             if (!conn || !conn.open) {
-                alert('相手とまだ繋がっていません。相手のメアドとコードを入力して「接続」を押すか、相手からの接続を待ってください。');
+                alert('相手とまだ繋がっていません。');
                 return;
             }
             const input = document.getElementById('message-input');
             const text = input.value.trim();
             if (!text) return;
 
-            conn.send({ type: 'text', content: text });
-            appendMessage('me', text);
+            conn.send({ type: 'text', content: text, sender: 'peer' });
+            saveAndAppend('me', 'text', text);
             input.value = '';
         }
 
-        // 画像選択関係
         function triggerFileInput() {
             document.getElementById('file-input').click();
         }
@@ -434,52 +475,60 @@
             const reader = new FileReader();
             reader.onload = function(e) {
                 const base64Data = e.target.result;
-                conn.send({ type: 'image', content: base64Data });
-                appendImage('me', base64Data);
+                conn.send({ type: 'image', content: base64Data, sender: 'peer' });
+                saveAndAppend('me', 'image', base64Data);
             };
             reader.readAsDataURL(file);
             event.target.value = ''; 
         }
 
-        // チャットログへのレンダリング
-        function appendMessage(sender, text) {
+        // マークアップ追加処理
+        function appendMessageMarkup(sender, text) {
             const container = document.getElementById('chat-container');
             const row = document.createElement('div');
             row.className = `message-row ${sender}`;
-            
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble';
             bubble.innerText = text;
-            
             row.appendChild(bubble);
             container.appendChild(row);
             container.scrollTop = container.scrollHeight;
         }
 
-        function appendImage(sender, base64Data) {
+        function appendImageMarkup(sender, base64Data) {
             const container = document.getElementById('chat-container');
             const row = document.createElement('div');
             row.className = `message-row ${sender}`;
-            
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble';
-            
             const img = document.createElement('img');
             img.src = base64Data;
-            
             bubble.appendChild(img);
             row.appendChild(bubble);
             container.appendChild(row);
-            
-            img.onload = () => {
-                container.scrollTop = container.scrollHeight;
-            };
+            img.onload = () => { container.scrollTop = container.scrollHeight; };
+        }
+
+        // 保存された履歴をすべて再描画
+        function renderHistory() {
+            document.getElementById('chat-container').innerHTML = '';
+            chatHistory.forEach(item => {
+                if (item.type === 'text') appendMessageMarkup(item.sender, item.content);
+                if (item.type === 'image') appendImageMarkup(item.sender, item.content);
+            });
+        }
+
+        // 履歴の初期化
+        function clearHistory() {
+            if (confirm('チャット履歴を削除しますか？')) {
+                localStorage.removeItem('wifi_chat_history');
+                chatHistory = [];
+                document.getElementById('chat-container').innerHTML = '';
+            }
         }
 
         function handleKeyPress(event) {
-            if (event.key === 'Enter') {
-                sendMessage();
-            }
+            if (event.key === 'Enter') sendMessage();
         }
 
         function updateStatus(text, color) {
