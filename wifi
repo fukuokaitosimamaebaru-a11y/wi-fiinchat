@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wi-Fi内線通信</title>
+    <!-- PeerJSライブラリ -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --line-bg: #7493c1;
+            --my-msg-bg: #85e249;
+            --peer-msg-bg: #ffffff;
+            --text-color: #000000;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* ログイン画面 */
+        #login-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 20px;
+        }
+
+        .login-box {
+            width: 100%;
+            max-width: 360px;
+            text-align: center;
+        }
+
+        .login-logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #06c755;
+            margin-bottom: 25px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+
+        .input-group label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #555;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input[type="email"], input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 15px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #06c755;
+        }
+
+        .main-btn {
+            width: 100%;
+            padding: 12px;
+            background-color: #06c755;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        /* チャット画面のヘッダー */
+        #chat-header {
+            background-color: #ffffff;
+            padding: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+
+        .header-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .header-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .header-label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #666;
+            min-width: 75px;
+        }
+
+        .user-info-text {
+            font-size: 14px;
+            word-break: break-all;
+            flex: 1;
+        }
+
+        .sub-btn {
+            padding: 8px 14px;
+            background-color: #242424;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        #status-bar {
+            font-size: 12px;
+            font-weight: bold;
+            color: #ff3b30;
+        }
+
+        /* チャットエリア */
+        #chat-container {
+            flex: 1;
+            background-color: var(--line-bg);
+            overflow-y: auto;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message-row {
+            display: flex;
+            width: 100%;
+        }
+
+        .message-row.me {
+            justify-content: flex-end;
+        }
+
+        .message-row.peer {
+            justify-content: flex-start;
+        }
+
+        .message-bubble {
+            max-width: 70%;
+            padding: 10px 14px;
+            border-radius: 15px;
+            font-size: 15px;
+            line-height: 1.4;
+            word-break: break-all;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+        }
+
+        .me .message-bubble {
+            background-color: var(--my-msg-bg);
+            color: var(--text-color);
+            border-top-right-radius: 2px;
+        }
+
+        .peer .message-bubble {
+            background-color: var(--peer-msg-bg);
+            color: var(--text-color);
+            border-top-left-radius: 2px;
+        }
+
+        .message-bubble img {
+            max-width: 100%;
+            border-radius: 10px;
+            margin-top: 5px;
+            display: block;
+        }
+
+        /* 下部入力エリア */
+        #input-panel {
+            background-color: #ffffff;
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-top: 1px solid #ddd;
+        }
+
+        #message-input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            outline: none;
+            font-size: 15px;
+        }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 5px;
+            color: #555;
+        }
+
+        #send-btn {
+            background-color: #06c755;
+            color: white;
+            border-radius: 20px;
+            padding: 8px 20px;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        #file-input {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 1. ログイン画面 -->
+    <div id="login-screen">
+        <div class="login-box">
+            <div class="login-logo">Wi-Fi内線通信</div>
+            <div class="input-group">
+                <label for="login-email">あなたのメールアドレス</label>
+                <input type="email" id="login-email" placeholder="example@mail.com" required>
+            </div>
+            <div class="input-group">
+                <label for="login-code">認証用コード (4桁以上の数字や英字など)</label>
+                <input type="text" id="login-code" placeholder="例: 1234 や abc" required>
+            </div>
+            <button class="main-btn" onclick="loginWithCredentials()">入室する</button>
+        </div>
+    </div>
+
+    <!-- 2. メインチャット画面ヘッダー -->
+    <div id="chat-header">
+        <div class="header-row">
+            <span class="header-label">あなた:</span>
+            <span id="my-info-display" class="user-info-text">—</span>
+        </div>
+        <div class="header-row" style="gap: 5px;">
+            <span class="header-label">相手の情報:</span>
+            <input type="email" id="peer-email-input" style="flex: 2;" placeholder="相手のメールアドレス">
+            <input type="text" id="peer-code-input" style="flex: 1;" placeholder="相手のコード">
+            <button class="sub-btn" id="connect-btn" onclick="connectToPeer()">接続</button>
+        </div>
+        <div class="header-row" style="justify-content: space-between; margin-top: 5px; padding-top: 5px; border-top: 1px dashed #eee;">
+            <div id="status-bar">オフライン</div>
+        </div>
+    </div>
+
+    <!-- チャット表示エリア -->
+    <div id="chat-container"></div>
+
+    <!-- 入力パネル -->
+    <div id="input-panel">
+        <button class="icon-btn" onclick="triggerFileInput()">➕</button>
+        <input type="file" id="file-input" accept="image/*" onchange="handleFileSelect(event)">
+        <input type="text" id="message-input" placeholder="メッセージを入力" onkeypress="handleKeyPress(event)">
+        <button id="send-btn" onclick="sendMessage()">送信</button>
+    </div>
+
+    <script>
+        let peer = null;
+        let conn = null;
+        let myEmailStr = "";
+        let myCodeStr = "";
+
+        // メールアドレスとコードを合体させて安全なハッシュIDを作る関数
+        async function generateSecureId(email, code) {
+            const combinedString = `email:${email.trim().toLowerCase()}-code:${code.trim()}`;
+            
+            let h1 = 1779033703, h2 = 302473454, h3 = 336245363, h4 = 502494325;
+            for (let i = 0, k; i < combinedString.length; i++) {
+                k = combinedString.charCodeAt(i);
+                h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+                h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+                h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+                h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+            }
+            h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+            h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+            h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+            h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+            return [(h1^h2^h3^h4)>>>0, (h2^h1)>>>0, (h3^h1)>>>0, (h4^h1)>>>0].map(x => x.toString(16).padStart(8,'0')).join('');
+        }
+
+        // ログイン処理
+        async function loginWithCredentials() {
+            const emailInput = document.getElementById('login-email').value.trim();
+            const codeInput = document.getElementById('login-code').value.trim();
+
+            if (!emailInput || !emailInput.includes('@')) {
+                alert('正しいメールアドレスを入力してください。');
+                return;
+            }
+            if (!codeInput) {
+                alert('認証用コードを入力してください。');
+                return;
+            }
+
+            myEmailStr = emailInput;
+            myCodeStr = codeInput;
+
+            document.getElementById('my-info-display').innerText = `${myEmailStr} [コード: ${myCodeStr}]`;
+            
+            const finalPeerId = await generateSecureId(myEmailStr, myCodeStr);
+
+            document.getElementById('login-screen').style.display = 'none';
+            updateStatus('回線を確立中...', '#ff9500');
+
+            peer = new Peer(finalPeerId);
+
+            peer.on('open', (id) => {
+                updateStatus('待機中（相手からの接続を待っています）', '#007aff');
+            });
+
+            peer.on('connection', (incomingConn) => {
+                if (conn) return; 
+                conn = incomingConn;
+                setupConnection();
+            });
+
+            peer.on('error', (err) => {
+                console.error(err);
+                if (err.type === 'unavailable-id') {
+                    alert('このメアドとコードの組み合わせはすでに接続中か、セッションが残っています。');
+                    location.reload();
+                } else {
+                    alert('エラーが発生しました: ' + err.type);
+                }
+            });
+        }
+
+        // 自分から相手に発信する処理
+        async function connectToPeer() {
+            const peerEmail = document.getElementById('peer-email-input').value.trim();
+            const peerCode = document.getElementById('peer-code-input').value.trim();
+
+            if (!peerEmail || !peerEmail.includes('@') || !peerCode) {
+                alert('相手のメールアドレスとコードを正しく入力してください。');
+                return;
+            }
+
+            updateStatus('相手の組み合わせを検索して接続中...', '#ff9500');
+            
+            const targetPeerId = await generateSecureId(peerEmail, peerCode);
+            
+            conn = peer.connect(targetPeerId);
+            setupConnection();
+        }
+
+        // 接続完了後のイベント設定
+        function setupConnection() {
+            conn.on('open', () => {
+                updateStatus('接続完了！通信可能です', '#4cd964');
+                document.getElementById('connect-btn').disabled = true;
+                document.getElementById('peer-email-input').disabled = true;
+                document.getElementById('peer-code-input').disabled = true;
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'text') {
+                    appendMessage('peer', data.content);
+                } else if (data.type === 'image') {
+                    appendImage('peer', data.content);
+                }
+            });
+
+            conn.on('close', () => {
+                updateStatus('切断されました', '#ff3b30');
+                conn = null;
+                document.getElementById('connect-btn').disabled = false;
+                document.getElementById('peer-email-input').disabled = false;
+                document.getElementById('peer-code-input').disabled = false;
+            });
+        }
+
+        // メッセージ送信
+        function sendMessage() {
+            if (!conn || !conn.open) {
+                alert('相手とまだ繋がっていません。相手のメアドとコードを入力して「接続」を押すか、相手からの接続を待ってください。');
+                return;
+            }
+            const input = document.getElementById('message-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            conn.send({ type: 'text', content: text });
+            appendMessage('me', text);
+            input.value = '';
+        }
+
+        // 画像選択関係
+        function triggerFileInput() {
+            document.getElementById('file-input').click();
+        }
+
+        function handleFileSelect(event) {
+            if (!conn || !conn.open) {
+                alert('相手と接続されていません。');
+                return;
+            }
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64Data = e.target.result;
+                conn.send({ type: 'image', content: base64Data });
+                appendImage('me', base64Data);
+            };
+            reader.readAsDataURL(file);
+            event.target.value = ''; 
+        }
+
+        // チャットログへのレンダリング
+        function appendMessage(sender, text) {
+            const container = document.getElementById('chat-container');
+            const row = document.createElement('div');
+            row.className = `message-row ${sender}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            bubble.innerText = text;
+            
+            row.appendChild(bubble);
+            container.appendChild(row);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function appendImage(sender, base64Data) {
+            const container = document.getElementById('chat-container');
+            const row = document.createElement('div');
+            row.className = `message-row ${sender}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            
+            const img = document.createElement('img');
+            img.src = base64Data;
+            
+            bubble.appendChild(img);
+            row.appendChild(bubble);
+            container.appendChild(row);
+            
+            img.onload = () => {
+                container.scrollTop = container.scrollHeight;
+            };
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        function updateStatus(text, color) {
+            const bar = document.getElementById('status-bar');
+            bar.innerText = text;
+            bar.style.color = color;
+        }
+    </script>
+</body>
+</html>
